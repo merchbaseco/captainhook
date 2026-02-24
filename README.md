@@ -42,6 +42,6 @@ Set at organization or repository scope:
 
 ## Behavior contract
 
-- On success, CaptainHook posts a concise release digest.
+- On success, CaptainHook posts a concise, characterful digest (opener + brief bullets + single commit link).
 - On failure, CaptainHook posts a failure-first alert and does **not** present feature bullets as shipped.
 - Uses workflow context automatically (`repository`, `branch`, `actor`, `run`, `sha`).
