@@ -1,16 +1,16 @@
 name: CaptainHook Deploy Notify
-description: Post Captain Hook–style deploy notifications to Discord (success digest + failure alert)
+description: Post concise deploy notifications to Discord (krill-style success digest + failure alert)
 
 inputs:
   discord-webhook-url:
     description: Discord Incoming Webhook URL
     required: true
   openai-api-key:
-    description: OpenAI API key for styled summaries
+    description: Deprecated no-op (kept for backward compatibility)
     required: false
     default: ""
   openai-model:
-    description: OpenAI model name for summary generation
+    description: Deprecated no-op (kept for backward compatibility)
     required: false
     default: gpt-5-mini
   job-status:
@@ -18,7 +18,7 @@ inputs:
     required: false
     default: success
   style-file:
-    description: Optional style/SOUL file path (relative to caller repo root)
+    description: Deprecated no-op (kept for backward compatibility)
     required: false
     default: ""
   max-commits:

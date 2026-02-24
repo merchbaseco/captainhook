@@ -6,19 +6,12 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from typing import Any
 
 
-META_KEYWORDS = [
-    "deploy",
-    "workflow",
-    "actions",
-    "ci",
-    "discord",
-    "webhook",
-    "runner",
-    "pipeline",
-]
+COMMIT_TYPE_RE = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?!?:\s*(?P<rest>.+)$")
+FEATURE_TYPES = {"feat", "feature"}
+IMPROVEMENT_PREFIXES = ("fix", "bug", "perf", "refactor", "chore", "build", "ci", "docs", "test", "style")
+FEATURE_PREFIXES = ("add ", "adds ", "introduce ", "introduces ", "support ", "supports ", "enable ", "enables ", "new ")
 
 
 def env(name: str, default: str = "") -> str:
@@ -90,253 +83,109 @@ def build_commits(before_sha: str, after_sha: str, max_commits: int) -> list[dic
     return commits
 
 
-def commit_url(repo: str, after_sha: str) -> str:
-    if repo and after_sha:
-        return f"https://github.com/{repo}/commit/{after_sha}"
-    return ""
-
-
 def normalize_repo_name(repo: str) -> str:
     short = repo.split("/")[-1] if repo else "repo"
     pieces = [p for p in short.replace("_", "-").split("-") if p]
     return " ".join(p.capitalize() for p in pieces) if pieces else short
 
 
-def read_soul(style_file_input: str, action_path: str) -> str:
-    candidates: list[pathlib.Path] = []
-    if style_file_input:
-        p = pathlib.Path(style_file_input)
-        if not p.is_absolute():
-            p = pathlib.Path.cwd() / p
-        candidates.append(p)
-    candidates.append(pathlib.Path(action_path) / "SOUL.md")
-
-    for p in candidates:
-        if p.exists():
-            try:
-                return p.read_text(encoding="utf-8")
-            except Exception:
-                continue
-    return ""
+def parse_shortstat(raw: str) -> dict[str, int]:
+    files_match = re.search(r"(\d+)\s+files?\s+changed", raw)
+    insertions_match = re.search(r"(\d+)\s+insertions?\(\+\)", raw)
+    deletions_match = re.search(r"(\d+)\s+deletions?\(-\)", raw)
+    return {
+        "files_changed": int(files_match.group(1)) if files_match else 0,
+        "insertions": int(insertions_match.group(1)) if insertions_match else 0,
+        "deletions": int(deletions_match.group(1)) if deletions_match else 0,
+    }
 
 
-def select_notable_subjects(commits: list[dict[str, str]], limit: int = 3) -> list[str]:
-    subjects = [c["subject"] for c in commits if c.get("subject")]
-    if not subjects:
-        return []
-
-    non_meta = [
-        s
-        for s in subjects
-        if not any(keyword in s.lower() for keyword in META_KEYWORDS)
-    ]
-    chosen = non_meta[:limit] if non_meta else subjects[:limit]
-    return chosen
-
-
-def fallback_success_copy(repo_name: str, commits: list[dict[str, str]], commit_link: str) -> str:
-    opener = f"Arr matey, {repo_name}'s latest deployment just landed clean."
-    subjects = select_notable_subjects(commits, limit=3)
-
-    if not subjects:
-        bullets = ["• Primarily internal maintenance this voyage."]
-    else:
-        bullets = [f"• {s}" for s in subjects]
-
-    lines = [opener, "", *bullets]
-    if commit_link:
-        lines.extend(["", f"Commit: {commit_link}"])
-    return "\n".join(lines).strip()
+def build_change_stats(before_sha: str, after_sha: str) -> dict[str, int]:
+    zero = "0" * 40
+    try:
+        if before_sha and before_sha != zero and after_sha:
+            raw = git("diff", "--shortstat", before_sha, after_sha)
+        elif after_sha:
+            raw = git("diff-tree", "--shortstat", "--no-commit-id", "--root", "-r", after_sha)
+        else:
+            raw = git("diff-tree", "--shortstat", "--no-commit-id", "--root", "-r", "HEAD")
+    except Exception:
+        raw = ""
+    return parse_shortstat(raw)
 
 
-def extract_response_text(response: dict[str, Any]) -> str:
-    direct = response.get("output_text")
-    if isinstance(direct, str) and direct.strip():
-        return direct.strip()
+def classify_subject(subject: str) -> str:
+    if not subject:
+        return "Fixes / Improvements"
 
-    chunks: list[str] = []
-    for item in response.get("output", []) or []:
-        if not isinstance(item, dict):
-            continue
-        for part in item.get("content", []) or []:
-            if not isinstance(part, dict):
-                continue
-            value = part.get("value")
-            if isinstance(value, str) and value.strip():
-                chunks.append(value.strip())
-                continue
-            text = part.get("text")
-            if isinstance(text, str) and text.strip():
-                chunks.append(text.strip())
-                continue
-            if isinstance(text, dict):
-                value = text.get("value")
-                if isinstance(value, str) and value.strip():
-                    chunks.append(value.strip())
-    return "\n".join(chunks).strip()
+    lowered = subject.lower().strip()
+    match = COMMIT_TYPE_RE.match(subject.strip())
+    if match:
+        commit_type = match.group("type").lower()
+        if commit_type in FEATURE_TYPES:
+            return "Features"
+        return "Fixes / Improvements"
+
+    if lowered.startswith(FEATURE_PREFIXES):
+        return "Features"
+    if lowered.startswith(IMPROVEMENT_PREFIXES):
+        return "Fixes / Improvements"
+    return "Fixes / Improvements"
 
 
-def sanitize_success_copy(text: str, fallback_opener: str, fallback_bullets: list[str]) -> str:
-    cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\n|\n```$", "", text.strip())
-    raw_lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-    raw_lines = [line for line in raw_lines if "http://" not in line and "https://" not in line]
-
-    if not raw_lines:
-        raise ValueError("Model returned empty output.")
-
-    opener = raw_lines[0]
-    if re.search(r"captainhook\s+\d|openclaw\s+\d", opener.lower()):
-        opener = fallback_opener
-
-    bullets: list[str] = []
-    for line in raw_lines[1:]:
-        text_line = re.sub(r"^[•\-*\d\.)\s]+", "", line).strip()
-        if not text_line:
-            continue
-        bullets.append(f"• {text_line}")
-
-    for fallback in fallback_bullets:
-        if len(bullets) >= 3:
-            break
-        if fallback not in bullets:
-            bullets.append(fallback)
-
-    if not bullets:
-        bullets = fallback_bullets[:1] if fallback_bullets else ["• Primarily internal maintenance this voyage."]
-
-    return "\n".join([opener, "", *bullets[:3]]).strip()
+def summarize_subject(subject: str, max_len: int = 110) -> str:
+    cleaned = re.sub(r"\s+", " ", subject).strip() or "No subject"
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[: max_len - 3].rstrip() + "..."
 
 
-def render_success_with_openai(
+def render_success_copy(
     *,
-    openai_api_key: str,
-    model: str,
-    soul: str,
-    repo: str,
     repo_name: str,
-    branch: str,
-    actor: str,
     commits: list[dict[str, str]],
+    stats: dict[str, int],
 ) -> str:
-    payload = {
-        "repo": repo,
-        "repo_name": repo_name,
-        "branch": branch,
-        "actor": actor,
-        "commits": commits,
-        "instructions": [
-            "Success-only deploy message.",
-            "No title/header/date line.",
-            "Line 1 must be a fun pirate-flavored opener sentence.",
-            "Then 2-3 short bullets of notable shipped changes.",
-            "Focus on user-visible/product impact first.",
-            "If mostly internal work, say that plainly.",
-            "No links in generated text.",
-            "No markdown code fences.",
-            "Keep it concise and punchy.",
-        ],
-    }
+    features: list[str] = []
+    fixes: list[str] = []
 
-    body: dict[str, Any] = {
-        "model": model,
-        "max_output_tokens": 220,
-        "input": [
-            {
-                "role": "system",
-                "content": (
-                    "You are Captain Hook, a production release narrator. "
-                    "Write concise, vivid deploy updates with pirate flavor and real signal."
-                ),
-            },
-            {
-                "role": "system",
-                "content": f"SOUL.md (style contract):\n\n{soul or '(No SOUL provided)'}",
-            },
-            {"role": "user", "content": json.dumps(payload)},
-        ],
-    }
-    if model.startswith("gpt-5"):
-        body["reasoning"] = {"effort": "minimal"}
-        body["text"] = {"verbosity": "low"}
-        body["max_output_tokens"] = 500
+    for commit in commits:
+        short_sha = commit.get("short_sha", "").strip() or "unknown"
+        subject = summarize_subject(commit.get("subject", ""))
+        line = f"• `{short_sha}` {subject}"
+        if classify_subject(subject) == "Features":
+            features.append(line)
+        else:
+            fixes.append(line)
 
-    req = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {openai_api_key}",
-            "User-Agent": "captainhook-notify/1.1",
-            "Accept": "application/json",
-        },
+    lines = [f"{repo_name} — update"]
+    if features:
+        lines.extend(["", "Features", *features])
+    if fixes:
+        lines.extend(["", "Fixes / Improvements", *fixes])
+    if not commits:
+        lines.extend(["", "Fixes / Improvements", "• No commit subjects found"])
+
+    lines.extend(
+        [
+            "",
+            (
+                f"Stats: +{stats['insertions']} / -{stats['deletions']} "
+                f"(files changed: {stats['files_changed']})"
+            ),
+        ]
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body_text = ""
-        try:
-            body_text = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        raise RuntimeError(f"OpenAI HTTPError {exc.code}: {body_text}") from exc
-
-    text = extract_response_text(data)
-    if not text:
-        print("OpenAI empty response payload:", json.dumps(data)[:1500])
-        raise ValueError("Model returned empty output.")
-    return text
-
-
-def generate_success_copy(
-    *,
-    repo: str,
-    repo_name: str,
-    branch: str,
-    actor: str,
-    commits: list[dict[str, str]],
-    commit_link: str,
-    openai_api_key: str,
-    model: str,
-    soul: str,
-) -> str:
-    fallback_bullets = [f"• {s}" for s in select_notable_subjects(commits, limit=3)]
-    fallback_opener = f"Arr matey, {repo_name}'s latest deployment just landed clean."
-
-    if not openai_api_key:
-        return fallback_success_copy(repo_name, commits, commit_link)
-
-    try:
-        rendered = render_success_with_openai(
-            openai_api_key=openai_api_key,
-            model=model,
-            soul=soul,
-            repo=repo,
-            repo_name=repo_name,
-            branch=branch,
-            actor=actor,
-            commits=commits,
-        )
-        body = sanitize_success_copy(rendered, fallback_opener, fallback_bullets)
-    except Exception as exc:
-        print(f"OpenAI summary failed, using fallback: {exc}")
-        return fallback_success_copy(repo_name, commits, commit_link)
-
-    lines = [body]
-    if commit_link:
-        lines.extend(["", f"Commit: {commit_link}"])
     return "\n".join(lines).strip()
 
 
 def generate_failure_copy(*, repo_name: str, branch: str, actor: str, run_url: str) -> str:
     lines = [
-        f"Arr matey, rough seas — {repo_name} failed to deploy on `{branch}`.",
-        "",
-        "• Build/deploy did not land.",
-        "• No feature notes posted for failed voyages.",
+        f"{repo_name} — deploy failed",
+        f"• Build/deploy did not land on `{branch}`.",
+        "• No shipped changes listed for failed deploys.",
         f"• Triggered by: {actor}",
         "",
-        f"Run: {run_url}",
+        f"Run: <{run_url}>",
     ]
     return "\n".join(lines).strip()
 
@@ -367,9 +216,6 @@ def post_discord(webhook_url: str, content: str) -> None:
 
 def main() -> None:
     webhook_url = env("CH_DISCORD_WEBHOOK_URL")
-    openai_api_key = env("CH_OPENAI_API_KEY")
-    openai_model = env("CH_OPENAI_MODEL", "gpt-4.1-mini")
-    style_file = env("CH_STYLE_FILE")
     max_commits = to_int(env("CH_MAX_COMMITS", "8"), 8)
 
     if not webhook_url:
@@ -386,11 +232,8 @@ def main() -> None:
     run_url = f"{env('GITHUB_SERVER_URL')}/{repo}/actions/runs/{env('GITHUB_RUN_ID')}"
     job_status = env("CH_JOB_STATUS", "unknown").lower()
 
-    action_path = env("GITHUB_ACTION_PATH", str(pathlib.Path(__file__).resolve().parent))
-    soul = read_soul(style_file, action_path)
-
     commits = build_commits(before_sha, after_sha, max_commits)
-    latest_commit_link = commit_url(repo, after_sha)
+    stats = build_change_stats(before_sha, after_sha)
 
     if job_status != "success":
         content = generate_failure_copy(
@@ -402,16 +245,10 @@ def main() -> None:
         post_discord(webhook_url, content)
         return
 
-    content = generate_success_copy(
-        repo=repo,
+    content = render_success_copy(
         repo_name=repo_name,
-        branch=branch,
-        actor=actor,
         commits=commits,
-        commit_link=latest_commit_link,
-        openai_api_key=openai_api_key,
-        model=openai_model,
-        soul=soul,
+        stats=stats,
     )
     post_discord(webhook_url, content)
 
