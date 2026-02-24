@@ -197,23 +197,18 @@ def generate_success_copy(
         "actor": actor,
         "date_tag": date_tag,
         "commits": commits,
-        "run_url": run_url,
-        "diff_url": diff_url,
-        "requirements": {
-            "format": "OpenClaw/X-style release digest",
-            "headline": "CaptainHook + date + hook emoji",
-            "bullets": "4-6 emoji-first bullets, one line each",
-            "status": "explicit success confirmation",
-            "length": "under 1200 chars",
-            "failure_rule": "N/A in this success-only branch",
-        },
+        "format_requirements": [
+            "Plain text only, no code fences.",
+            "OpenClaw/X-style deploy digest.",
+            "Line 1: headline with CaptainHook + date + hook emoji.",
+            "Line 2: blank line.",
+            "Then 4-6 concise emoji-first bullets.",
+            "Include one explicit success status line.",
+            "No links in body (links are appended by system).",
+            "No markdown tables.",
+            "Keep under 900 chars.",
+        ],
         "soul": soul,
-        "output_schema": {
-            "headline": "string",
-            "bullets": ["string"],
-            "status_line": "string",
-            "punchline": "string",
-        },
     }
 
     body = {
@@ -224,8 +219,9 @@ def generate_success_copy(
             {
                 "role": "system",
                 "content": (
-                    "You are Captain Hook deploy narrator. Return JSON only. "
-                    "No markdown code fences. Keep bullets factual and concise."
+                    "You are Captain Hook deploy narrator. "
+                    "Write a stylish but factual success digest. "
+                    "Do not invent facts."
                 ),
             },
             {"role": "user", "content": json.dumps(prompt_payload)},
@@ -246,31 +242,10 @@ def generate_success_copy(
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         output_text = (data.get("output_text") or "").strip()
-        parsed = extract_json_block(output_text)
-
-        if not parsed:
-            raise ValueError("Model returned non-JSON output.")
-
-        headline = str(parsed.get("headline") or default_headline).strip()
-        bullets_raw = parsed.get("bullets") or default_bullets
-        bullets = [str(b).strip() for b in bullets_raw if str(b).strip()]
-        if not bullets:
-            bullets = default_bullets
-        bullets = bullets[:6]
-
-        status_line = str(parsed.get("status_line") or default_status).strip()
-        punchline = str(parsed.get("punchline") or "").strip()
-
-        lines = [
-            headline,
-            "",
-            f"⚓ {repo_name} shipped to `{branch}`",
-            *bullets,
-            status_line,
-            punchline,
-            run_url,
-            diff_url if diff_url else "",
-        ]
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\\n|\\n```$", "", output_text).strip()
+        if not cleaned:
+            raise ValueError("Model returned empty output.")
+        lines = [cleaned, run_url, diff_url if diff_url else ""]
         return "\n".join(line for line in lines if line).strip()
     except Exception as exc:
         print(f"OpenAI summary failed, using fallback: {exc}")
