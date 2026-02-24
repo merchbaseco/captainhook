@@ -237,7 +237,7 @@ def render_success_with_openai(
         ],
     }
 
-    body = {
+    body: dict[str, Any] = {
         "model": model,
         "max_output_tokens": 220,
         "input": [
@@ -255,6 +255,10 @@ def render_success_with_openai(
             {"role": "user", "content": json.dumps(payload)},
         ],
     }
+    if model.startswith("gpt-5"):
+        body["reasoning"] = {"effort": "minimal"}
+        body["text"] = {"verbosity": "low"}
+        body["max_output_tokens"] = 500
 
     req = urllib.request.Request(
         "https://api.openai.com/v1/responses",
