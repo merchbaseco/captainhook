@@ -12,7 +12,7 @@ inputs:
   openai-model:
     description: OpenAI model name for summary generation
     required: false
-    default: gpt-4.1-mini
+    default: gpt-5-mini
   job-status:
     description: Job status from the caller (typically job.status from workflow context)
     required: false

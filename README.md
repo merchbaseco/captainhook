@@ -12,7 +12,7 @@ CaptainHook turns raw CI/CD context into clear, high-signal release messages wit
 - ❌ Failure alerts that prioritize incident clarity over feature hype
 - 🤖 Optional AI-assisted copy generation via OpenAI
 - 🧠 Persona/style contract via `SOUL.md`
-- 🔗 Automatic inclusion of run and compare/commit links
+- 🔗 Automatic link handling (single commit link on success; run link on failure)
 - 🛡️ Discord webhook compatibility headers (including Cloudflare-sensitive environments)
 
 ## Repository layout
