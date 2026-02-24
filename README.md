@@ -1,4 +1,6 @@
-# captainhook
+![A hook helming a bundle of data streams](hook-banner.png)
+
+# Captain Hook
 
 A reusable GitHub Action for posting polished deployment updates to Discord.
 
