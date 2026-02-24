@@ -14,7 +14,7 @@ inputs:
     required: false
     default: gpt-4.1-mini
   job-status:
-    description: Job status from the caller (typically ${{ job.status }})
+    description: Job status from the caller (typically job.status from workflow context)
     required: false
     default: success
   style-file:
