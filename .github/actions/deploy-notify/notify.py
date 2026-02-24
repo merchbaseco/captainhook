@@ -235,7 +235,6 @@ def render_success_with_openai(
 
     body = {
         "model": model,
-        "temperature": 0.5,
         "max_output_tokens": 220,
         "input": [
             {
@@ -263,8 +262,16 @@ def render_success_with_openai(
             "Accept": "application/json",
         },
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body_text = ""
+        try:
+            body_text = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        raise RuntimeError(f"OpenAI HTTPError {exc.code}: {body_text}") from exc
 
     text = extract_response_text(data)
     if not text:
