@@ -1,42 +1,32 @@
 # captainhook
 
-Shared deploy-notification logic for Merchbase services.
+A reusable GitHub Action for posting polished deployment updates to Discord.
 
-## What this repo is
+CaptainHook turns raw CI/CD context into clear, high-signal release messages with a distinct voice.
 
-`captainhook` centralizes the Discord deploy post behavior that used to be duplicated in each app repo.
+## Features
 
-Instead of copying inline Python in every `deploy.yml`, service repos now call a single shared GitHub Action from here:
+- ✅ Success digests with structured, emoji-led release notes
+- ❌ Failure alerts that prioritize incident clarity over feature hype
+- 🤖 Optional AI-assisted copy generation via OpenAI
+- 🧠 Persona/style contract via `SOUL.md`
+- 🔗 Automatic inclusion of run and compare/commit links
+- 🛡️ Discord webhook compatibility headers (including Cloudflare-sensitive environments)
+
+## Repository layout
 
 - `.github/actions/deploy-notify/action.yml`
 - `.github/actions/deploy-notify/notify.py`
-
-This keeps deploy messaging consistent and makes style/logic changes one-time.
-
-## Why it exists
-
-- Single place for deploy post formatting + behavior
-- AI summary + commit rollup in one implementation
-- Clear failure-mode handling (no feature bullets when deploy fails)
-- Easier maintenance, fewer drift bugs
-
-## Personality / style
-
-`SOUL.md` defines Captain Hook’s voice and format policy.
-
-High-level behavior:
-
-- **Success**: OpenClaw/X-style digest with emoji bullets + links
-- **Failure**: explicit failure report, no feature rollup
+- `SOUL.md`
 
 ## Required secrets in consuming repos
 
-Set at org or repo level:
+Set at organization or repository scope:
 
 - `DISCORD_DEPLOY_WEBHOOK_URL`
-- `OPENAI_API_KEY` (optional, used for richer summaries)
+- `OPENAI_API_KEY` *(optional)*
 
-## Usage from another repo
+## Quick start
 
 ```yaml
 - name: Notify Discord
@@ -48,7 +38,8 @@ Set at org or repo level:
     openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 ```
 
-## Notes
+## Behavior contract
 
-- Includes webhook headers that avoid Cloudflare 403 blocks on default `urllib` user agents.
-- Uses workflow context (`repo`, `branch`, `actor`, `run`, `sha`) automatically.
+- On success, CaptainHook posts a concise release digest.
+- On failure, CaptainHook posts a failure-first alert and does **not** present feature bullets as shipped.
+- Uses workflow context automatically (`repository`, `branch`, `actor`, `run`, `sha`).
