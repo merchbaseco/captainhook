@@ -1,0 +1,42 @@
+name: CaptainHook Deploy Notify
+description: Post Captain Hook–style deploy notifications to Discord (success digest + failure alert)
+
+inputs:
+  discord-webhook-url:
+    description: Discord Incoming Webhook URL
+    required: true
+  openai-api-key:
+    description: OpenAI API key for styled summaries
+    required: false
+    default: ""
+  openai-model:
+    description: OpenAI model name for summary generation
+    required: false
+    default: gpt-4.1-mini
+  job-status:
+    description: Job status from the caller (typically ${{ job.status }})
+    required: false
+    default: success
+  style-file:
+    description: Optional style/SOUL file path (relative to caller repo root)
+    required: false
+    default: ""
+  max-commits:
+    description: Max commit subjects to inspect
+    required: false
+    default: "8"
+
+runs:
+  using: composite
+  steps:
+    - name: CaptainHook notify
+      shell: bash
+      env:
+        CH_DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+        CH_OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        CH_OPENAI_MODEL: ${{ inputs.openai-model }}
+        CH_JOB_STATUS: ${{ inputs.job-status }}
+        CH_STYLE_FILE: ${{ inputs.style-file }}
+        CH_MAX_COMMITS: ${{ inputs.max-commits }}
+      run: |
+        python3 "$GITHUB_ACTION_PATH/notify.py"
