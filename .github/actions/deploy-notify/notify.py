@@ -161,6 +161,10 @@ def extract_response_text(response: dict[str, Any]) -> str:
         for part in item.get("content", []) or []:
             if not isinstance(part, dict):
                 continue
+            value = part.get("value")
+            if isinstance(value, str) and value.strip():
+                chunks.append(value.strip())
+                continue
             text = part.get("text")
             if isinstance(text, str) and text.strip():
                 chunks.append(text.strip())
@@ -275,6 +279,7 @@ def render_success_with_openai(
 
     text = extract_response_text(data)
     if not text:
+        print("OpenAI empty response payload:", json.dumps(data)[:1500])
         raise ValueError("Model returned empty output.")
     return text
 
